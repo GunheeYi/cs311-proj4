@@ -1,8 +1,61 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
+#include <assert.h>
 
 #define BYTES_PER_WORD 4
+#define MAX_LEN 1024
+
+// * copied from project 2
+char** str_split(char *a_str, const char a_delim)
+{
+    char** result    = 0;
+    size_t count     = 0;
+    char* tmp        = a_str;
+    char* last_comma = 0;
+    char delim[2];
+    delim[0] = a_delim;
+    delim[1] = 0;
+
+    /* Count how many elements will be extracted. */
+    while (*tmp)
+    {
+	if (a_delim == *tmp)
+	{
+	    count++;
+	    last_comma = tmp;
+	}
+	tmp++;
+    }
+
+    /* Add space for trailing token. */
+    count += last_comma < (a_str + strlen(a_str) - 1);
+
+    /* Add space for terminating null string so caller
+     *        knows where the list of returned strings ends. */
+    count++;
+
+    result = malloc(sizeof(char*) * count);
+
+    if (result)
+    {
+	size_t idx  = 0;
+	char* token = strtok(a_str, delim);
+
+	while (token)
+	{
+	    assert(idx < count);
+	    *(result + idx++) = strdup(token);
+	    token = strtok(0, delim);
+	}
+	assert(idx == count - 1);
+	*(result + idx) = 0;
+    }
+
+    return result;
+}
+
 
 /***************************************************************/
 /*                                                             */
@@ -102,9 +155,6 @@ void xdump(int set, int way, uint32_t** cache)
 	printf("\n");
 }
 
-
-
-
 int main(int argc, char *argv[]) {                              
 
 	uint32_t** cache;
@@ -113,7 +163,36 @@ int main(int argc, char *argv[]) {
 	int way = 4;
 	int blocksize = 8;
 	int set = capacity/way/blocksize;
-	int words = blocksize / BYTES_PER_WORD;	
+	int words = blocksize / BYTES_PER_WORD;
+
+	int reads = 0, writes = 0, writeBacks = 0, readHits = 0, writeHits = 0, readMisses = 0, writeMisses = 0;
+
+	int count = 1;
+	int dumpContent = 0;
+
+	while(count != argc-1){
+		if(strcmp(argv[count], "-c") == 0){
+			char** tokens = str_split(argv[++count],':');
+
+			capacity = (int)atoi(*(tokens));
+			way = (int)atoi(*(tokens+1));
+			blocksize = (int)atoi(*(tokens+2));
+		}
+		else if(strcmp(argv[count], "-x") == 0)
+			dumpContent = 1;
+		else{
+			printf("Error: usage: %s -c capacity:associativity:block_size [-x] <input trace file>\n", argv[0]);
+			exit(1);
+		}
+		count++;
+    }
+	
+	// open input trace file
+	FILE* file = fopen(argv[argc-1], "r");
+    if (file == NULL) {
+		printf("Error: Can't open program file %s\n", argv[argc-1]);
+		exit(-1);
+    }
 
 	// allocate
 	cache = (uint32_t**) malloc (sizeof(uint32_t*) * set);
@@ -125,10 +204,31 @@ int main(int argc, char *argv[]) {
 			cache[i][j] = 0x1;
 	}
 
-	// test example
-    	cdump(capacity, way, blocksize);
-    	sdump(0, 0, 0, 0, 0, 0, 0); 
-    	xdump(set, way, cache);
+	// process read and writes
+	char buffer[MAX_LEN];
+	char** line;
+	char RW;
+	int target;
+    while (fgets(buffer, MAX_LEN - 1, file))
+    {
+        // Remove trailing newline
+        buffer[strcspn(buffer, "\n")] = 0;
+		line = str_split(buffer,' ');
+		RW = **line;
+		target = (int) strtol(*(line+1), NULL, 16);
+        printf("%c, 0x%08x\n", RW, target);
 
-    	return 0;
+		if(RW=='R') {
+			reads++;
+		} else if (RW=='W') {
+			writes++;
+		}
+    }
+
+	// test example
+	cdump(capacity, way, blocksize);
+	sdump(reads, writes, writeBacks, readHits, writeHits, readMisses, writeMisses); 
+	if (dumpContent) xdump(set, way, cache);
+
+	return 0;
 }
