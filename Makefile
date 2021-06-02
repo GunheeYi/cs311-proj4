@@ -1,7 +1,7 @@
 cs311cache: main.c
 	gcc -g -O2 $^ -o $@
 clean:
-	rm -rf *~cs311cache
+	rm -rf *~ cs311cache
 
 test: cs311cache test_simple test_gcc test_libquantum
 

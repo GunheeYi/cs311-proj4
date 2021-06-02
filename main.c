@@ -155,17 +155,40 @@ void xdump(int set, int way, uint32_t** cache)
 	printf("\n");
 }
 
+int logTwo(a) {
+	int count = 0;
+	while (a!=1) {
+		a /= 2;
+		count += 1;
+	}
+	return count;
+}
+
+uint32_t** cache;
+uint32_t** history;
+uint32_t** dirty;
+uint32_t* occupied;
+int capacity = 256;
+int way = 4;
+int blocksize = 8;
+int set;
+int words;
+int tagLength;
+int indexLength;
+int blockOffset;
+
+uint32_t push(int index, uint32_t a) {
+	uint32_t b = history[index][way-1];
+	for (int i = 0; i < way-1; i++) {
+		history[index][i] = history[index][i+1];
+	}
+	history[index][0] = a;
+	return b;
+}
+
 int main(int argc, char *argv[]) {                              
 
-	uint32_t** cache;
 	int i, j, k;	
-	int capacity = 256;
-	int way = 4;
-	int blocksize = 8;
-	int set = capacity/way/blocksize;
-	int words = blocksize / BYTES_PER_WORD;
-
-	int reads = 0, writes = 0, writeBacks = 0, readHits = 0, writeHits = 0, readMisses = 0, writeMisses = 0;
 
 	int count = 1;
 	int dumpContent = 0;
@@ -186,6 +209,15 @@ int main(int argc, char *argv[]) {
 		}
 		count++;
     }
+
+	set = capacity/way/blocksize;
+	words = blocksize / BYTES_PER_WORD;
+	
+	indexLength = logTwo(set);
+	blockOffset = logTwo(blocksize);
+	tagLength = 32 - indexLength - blockOffset;
+
+	int reads = 0, writes = 0, writeBacks = 0, readHits = 0, writeHits = 0, readMisses = 0, writeMisses = 0;
 	
 	// open input trace file
 	FILE* file = fopen(argv[argc-1], "r");
@@ -196,19 +228,32 @@ int main(int argc, char *argv[]) {
 
 	// allocate
 	cache = (uint32_t**) malloc (sizeof(uint32_t*) * set);
+	history = (uint32_t**) malloc (sizeof(uint32_t*) * set);
+	dirty = (uint32_t**) malloc (sizeof(uint32_t*) * set);
 	for(i = 0; i < set; i++) {
 		cache[i] = (uint32_t*) malloc(sizeof(uint32_t) * way);
+		history[i] = (uint32_t*) malloc(sizeof(uint32_t) * way);
+		dirty[i] = (uint32_t*) malloc(sizeof(uint32_t) * way);
 	}
 	for(i = 0; i < set; i++) {
 		for(j = 0; j < way; j ++) 
-			cache[i][j] = 0x1;
+			cache[i][j] = 0;
+			history[i][j] = 0;
+			dirty[i][j] = 0;
+	}
+
+	occupied = (uint32_t*) malloc(sizeof(uint32_t*) * set);
+	for ( i = 0; i < set; i++)
+	{
+		occupied[i] = 0;
 	}
 
 	// process read and writes
+	int t = 0;
 	char buffer[MAX_LEN];
 	char** line;
 	char RW;
-	int target;
+	uint32_t target, entry, tag, index, hit;
     while (fgets(buffer, MAX_LEN - 1, file))
     {
         // Remove trailing newline
@@ -216,13 +261,52 @@ int main(int argc, char *argv[]) {
 		line = str_split(buffer,' ');
 		RW = **line;
 		target = (int) strtol(*(line+1), NULL, 16);
-        printf("%c, 0x%08x\n", RW, target);
 
-		if(RW=='R') {
-			reads++;
-		} else if (RW=='W') {
-			writes++;
+		entry = target - target % blocksize;
+		tag = entry >> (32-tagLength);
+		index = entry << tagLength >> (tagLength+blockOffset); 
+
+		RW=='R' ? reads++ : writes++;
+
+		hit = 0;
+		for(i = 0; i < way; i++) {
+			if(cache[index][i]==entry) {
+				RW=='R' ? readHits++ : writeHits++;
+				history[index][i] = t;
+				if(RW=='W') dirty[index][i] = 1;
+				hit = 1;
+				break;
+			}
 		}
+		if(!hit) {
+			RW=='R' ? readMisses++ : writeMisses++;
+			if(occupied[index] < way) { // Cache not filled yet
+
+				cache[index][occupied[index]] = entry;
+				history[index][occupied[index]] = t;
+				dirty[index][occupied[index]] = RW=='R' ? 0 : 1;
+				occupied[index]++;
+
+			} else { // LRU has to be evicted
+
+				uint32_t LRUt = history[index][0], LRU = 0;
+				for(i = 1; i < way; i++) {
+					if (history[index][i] < LRUt) {
+						LRUt = history[index][i];
+						LRU = i;
+					}
+				}
+
+				if(dirty[index][LRU]) writeBacks++;
+
+				cache[index][LRU] = entry;
+				history[index][LRU] = t;
+				dirty[index][LRU] = RW=='R' ? 0 : 1;
+
+			}
+		}
+
+		t++;
     }
 
 	// test example
