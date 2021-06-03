@@ -304,7 +304,7 @@ int main(int argc, char *argv[]) {
 				dirty[index][LRU] = RW=='R' ? 0 : 1;
 
 			}
-		}
+		} 
 
 		t++;
     }
