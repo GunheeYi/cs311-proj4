@@ -155,7 +155,7 @@ void xdump(int set, int way, uint32_t** cache)
 	printf("\n");
 }
 
-int logTwo(a) {
+int logTwo(int a) {
 	int count = 0;
 	while (a!=1) {
 		a /= 2;
@@ -176,15 +176,6 @@ int words;
 int tagLength;
 int indexLength;
 int blockOffset;
-
-uint32_t push(int index, uint32_t a) {
-	uint32_t b = history[index][way-1];
-	for (int i = 0; i < way-1; i++) {
-		history[index][i] = history[index][i+1];
-	}
-	history[index][0] = a;
-	return b;
-}
 
 int main(int argc, char *argv[]) {                              
 
